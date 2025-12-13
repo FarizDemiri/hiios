@@ -1,38 +1,37 @@
-
 {
-  "name": "hiios",
-  "version": "0.1.0",
-  "description": "Holistic Infrastructure Interpreter - Translate Kubernetes chaos into human understanding",
-  "main": "dist/index.js",
-  "bin": {
-    "hiios": "dist/index.js"
-  },
-  "scripts": {
-    "build": "tsc",
-    "start": "ts-node src/index.ts",
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
-  "keywords": [
-    "kubernetes",
-    "devops",
-    "sre",
-    "cli-tool",
-    "infrastructure",
-    "observability",
-    "k8s"
-  ],
-  "author": "Antigravity",
-  "license": "MIT",
-  "dependencies": {
-    "@kubernetes/client-node": "^0.21.0",
-    "chalk": "^5.3.0",
-    "commander": "^12.0.0",
-    "yaml": "^2.4.0"
-  },
-  "devDependencies": {
-    "@types/node": "^20.0.0",
-    "ts-node": "^10.9.2",
-    "typescript": "^5.3.3"
-  },
-  "type": "module"
+    "name": "hiios",
+    "version": "0.2.0",
+    "description": "Holistic Infrastructure Interpreter - Translate Kubernetes chaos into human understanding",
+    "main": "dist/index.js",
+    "bin": {
+        "hiios": "dist/index.js"
+    },
+    "scripts": {
+        "build": "tsc",
+        "start": "ts-node src/index.ts",
+        "test": "echo \"Error: no test specified\" && exit 1"
+    },
+    "keywords": [
+        "kubernetes",
+        "devops",
+        "sre",
+        "cli-tool",
+        "infrastructure",
+        "observability",
+        "k8s"
+    ],
+    "author": "Antigravity",
+    "license": "MIT",
+    "dependencies": {
+        "@kubernetes/client-node": "^0.21.0",
+        "chalk": "^5.3.0",
+        "commander": "^12.0.0",
+        "yaml": "^2.4.0"
+    },
+    "devDependencies": {
+        "@types/node": "^20.0.0",
+        "ts-node": "^10.9.2",
+        "typescript": "^5.3.3"
+    },
+    "type": "module"
 }

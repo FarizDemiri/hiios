@@ -1,7 +1,8 @@
-
 import chalk from 'chalk';
 import { PodFacts } from '../gatherers/pod-gatherer.js';
 import { FailureMode } from '../catalog/types.js';
+import { ServiceFacts } from '../gatherers/service-gatherer.js';
+import { V1EndpointSubset } from '@kubernetes/client-node';
 
 export interface Explanation {
     summary: string;
@@ -100,6 +101,135 @@ export class Narrator {
             likelyCause,
             evidence,
             impact,
+            nextChecks: mode.nextChecks
+        };
+    }
+
+
+    explainImagePull(mode: FailureMode, facts: PodFacts): Explanation {
+        const pod = facts.pod;
+        const podName = pod.metadata?.name || 'unknown';
+        const namespace = pod.metadata?.namespace || 'unknown';
+        const evidence: string[] = [];
+
+        const containerStatus = facts.containerStatuses.find(s =>
+            s.state?.waiting?.reason === 'ImagePullBackOff' ||
+            s.state?.waiting?.reason === 'ErrImagePull'
+        );
+
+        if (containerStatus) {
+            evidence.push(`Container '${containerStatus.name}' status: ${containerStatus.state?.waiting?.reason}`);
+            evidence.push(`Image: ${containerStatus.image}`);
+        }
+
+        // Check events
+        const pullEvents = facts.events.filter(e =>
+            e.message?.includes('Failed to pull image') ||
+            e.message?.includes('image pull failed') ||
+            e.message?.includes('Back-off pulling image')
+        );
+
+        pullEvents.forEach(e => {
+            if (evidence.length < 5) evidence.push(`Event: ${e.message}`);
+        });
+
+        // Determine likely cause
+        let likelyCause = mode.commonCauses[0];
+        const eventMessages = pullEvents.map(e => e.message || '').join(' ').toLowerCase();
+
+        if (eventMessages.includes('access denied') || eventMessages.includes('unauthorized') || eventMessages.includes('authentication')) {
+            likelyCause = 'Private registry credentials (imagePullSecrets) are missing or incorrect';
+        } else if (eventMessages.includes('not found') || eventMessages.includes('manifest unknown')) {
+            likelyCause = 'Image name or tag does not exist in the registry';
+        } else if (eventMessages.includes('timeout') || eventMessages.includes('connection refused')) {
+            likelyCause = 'Registry is unreachable due to network issues';
+        } else if (eventMessages.includes('toomanyrequests')) {
+            likelyCause = 'Rate limit hit on public registry (e.g., Docker Hub)';
+        }
+
+        return {
+            summary: `Pod ${podName} cannot start because it fails to pull the image '${containerStatus?.image || 'unknown'}'.`,
+            meaning: mode.meaning,
+            likelyCause,
+            evidence,
+            impact: 'The pod cannot start. No containers are running.',
+            nextChecks: mode.nextChecks
+        };
+    }
+
+    explainOOM(mode: FailureMode, facts: PodFacts): Explanation {
+        const pod = facts.pod;
+        const evidence: string[] = [];
+
+        // Find OOMKilled container
+        const containerStatus = facts.containerStatuses.find(s =>
+            s.lastState?.terminated?.reason === 'OOMKilled' ||
+            s.lastState?.terminated?.exitCode === 137
+        );
+
+        if (containerStatus) {
+            evidence.push(`Container '${containerStatus.name}' was terminated with reason: ${containerStatus.lastState?.terminated?.reason}`);
+            evidence.push(`Exit Code: ${containerStatus.lastState?.terminated?.exitCode}`);
+            evidence.push(`Restart Count: ${containerStatus.restartCount}`);
+        }
+
+        let likelyCause = mode.commonCauses[0];
+        if (containerStatus && containerStatus.restartCount > 5) {
+            likelyCause = 'Possible memory leak (frequent restarts)';
+        }
+
+        return {
+            summary: `Container in pod ${pod.metadata?.name} was killed because it ran out of memory (OOMKilled).`,
+            meaning: mode.meaning,
+            likelyCause,
+            evidence,
+            impact: 'The container crashes when it exceeds memory limits. If in a deployment, this causes degraded availability.',
+            nextChecks: mode.nextChecks
+        };
+    }
+
+    explainServiceNoEndpoints(mode: FailureMode, facts: any): Explanation {
+        // facts is ServiceFacts
+        const serviceFacts = facts as ServiceFacts;
+        const service = serviceFacts.service;
+        const endpoints = serviceFacts.endpoints;
+        const evidence: string[] = [];
+
+        evidence.push(`Service Name: ${service.metadata?.name}`);
+        evidence.push(`Namespace: ${service.metadata?.namespace}`);
+
+        // Check selector
+        if (service.spec?.selector) {
+            const selector = Object.entries(service.spec.selector).map(([k, v]) => `${k}=${v}`).join(',');
+            evidence.push(`Selector: ${selector}`);
+        } else {
+            evidence.push('Selector: <none> (Manual endpoints required)');
+        }
+
+        // Check endpoints
+        if (!endpoints || !endpoints.subsets || endpoints.subsets.length === 0) {
+            evidence.push('Endpoints: 0 found');
+        } else {
+            // Check for notReadyAddresses
+            endpoints.subsets.forEach((subset: V1EndpointSubset) => {
+                if (subset.notReadyAddresses && subset.notReadyAddresses.length > 0) {
+                    evidence.push(`Found ${subset.notReadyAddresses.length} matching pods, but they are NOT READY.`);
+                }
+            });
+        }
+
+        let likelyCause = mode.commonCauses[0]; // Selector mismatch
+        // Refined logic would check if pods actually exist, but for now we look at evidence
+        if (endpoints && endpoints.subsets?.some((s: V1EndpointSubset) => s.notReadyAddresses?.length)) {
+            likelyCause = 'Pods match the selector but are failing readiness probes';
+        }
+
+        return {
+            summary: `Service ${service.metadata?.name} has no healthy endpoints to route traffic to.`,
+            meaning: mode.meaning,
+            likelyCause,
+            evidence,
+            impact: 'All traffic to this Service will fail (connection refused or timeout).',
             nextChecks: mode.nextChecks
         };
     }

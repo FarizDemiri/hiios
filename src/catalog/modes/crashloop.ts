@@ -22,7 +22,7 @@ export const crashLoopBackOffMode: FailureMode = {
                 return facts.containerStatuses.some(status => {
                     const isCrashLoop = status.state?.waiting?.reason === 'CrashLoopBackOff';
                     const highRestarts = status.restartCount > 3;
-                    const recentExit = status.lastState?.terminated?.exitCode !== undefined;
+                    const recentExit = status.lastState?.terminated?.exitCode !== undefined && status.lastState?.terminated?.exitCode !== 137;
                     return isCrashLoop || (highRestarts && recentExit);
                 });
             },

@@ -54,32 +54,36 @@ Hiios will never "fix" things automatically. It only explains and guides.
 
 Hiios is purely an **interpretation layer**.
 
-## Status
+## Status: v0.2 Implementation
 
-✅ **v0.1.0-alpha** - First working release! (December 2025)
+Hiios v0.2 now detects core failure modes for Pods and Services!
 
-**Currently working:**
+**Currently supported failure modes:**
 
-- [x] CLI framework with commander
-- [x] Kubernetes API client wrapper
-- [x] Pod fact gatherer with events and logs
-- [x] CrashLoopBackOff failure mode detection
-- [x] Intelligent narrative generation
-- [x] Evidence-based diagnosis from log analysis
-- [x] Beautiful terminal output
+- **CrashLoopBackOff**: Analyzes container exit codes and logs (even if K8s hasn't updated status yet).
+- **ImagePullBackOff**: Detects registry authentication, missing tags, and network issues.
+- **OOMKilled**: Identifies memory limit violations (including exit code 137).
+- **ServiceNoEndpoints**: Inspects Services to explain why connections fail (selector mismatch, failing probes).
 
-**Ready to use for:**
+**Core Features:**
 
-- ✅ Diagnosing CrashLoopBackOff failures
-- ✅ Understanding why pods are restarting
-- ✅ Getting actionable next steps without diving through logs
+- **Zero Configuration**: Reads from your current `kubectl` context.
+- **Narrative Output**: Explains *what* is wrong, *why* it's happening, and *what* to check next.
 
-**Coming in v0.2:**
+## Roadmap
 
-- ⏳ ImagePullBackOff detection
-- ⏳ OOMKilled detection
-- ⏳ ServiceNoEndpoints detection
-- ⏳ `hiios scan` command for namespace overview
+### v0.2 (December 2025 - SHIPPED!)
+
+- ✅ ImagePullBackOff detection
+- ✅ OOMKilled detection
+- ✅ ServiceNoEndpoints detection
+- ✅ `hiios explain svc <name>` support
+
+### v0.3+ (Future)
+
+- `hiios scan` command
+- PVC and storage issue detection
+- Ingress troubleshooting
 
 ## Installation
 
@@ -131,20 +135,21 @@ You should see a detailed explanation of why the pod is crashing!
 
 *npm package coming soon - this is an early alpha release for testing*
 
-## Example Output
+## Example Outputs
 
-Here's real output from Hiios diagnosing a CrashLoopBackOff failure:
+Hiios v0.2.0 can now detect and explain 4 common Kubernetes failure modes. Here are real outputs from our test cluster:
+
+### 1. CrashLoopBackOff - Application Exits Immediately
 
 ```bash
-$ node dist/index.js explain pod test-crashloop -n hiios-test
-Gathering facts for pod test-crashloop in hiios-test...
+$ hiios explain pod test-crashloop -n hiios-test
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 FAILURE DETECTED
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 SUMMARY:
-Pod test-crashloop in namespace hiios-test is in CrashLoopBackOff with 5 restarts.
+Pod test-crashloop in namespace hiios-test is in CrashLoopBackOff with 26 restarts.
 
 MEANING:
 The application starts but exits immediately or repeatedly. Kubernetes keeps 
@@ -154,7 +159,7 @@ LIKELY CAUSE:
 Missing or incorrect environment variable
 
 EVIDENCE:
-  • Container has restarted 5 times
+  • Container has restarted 26 times
   • Current state: CrashLoopBackOff
   • Last exit code: 1
   • Recent log shows: "Error: DATABASE_URL environment variable is not defined"
@@ -173,12 +178,129 @@ NEXT CHECKS:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ```
 
-Notice how Hiios:
+### 2. ImagePullBackOff - Cannot Pull Container Image
 
-- ✅ Identified the exact problem from logs
-- ✅ Explained what's actually happening
-- ✅ Provided evidence to back up the diagnosis
-- ✅ Suggested concrete next steps
+```bash
+$ hiios explain pod test-imagepull -n hiios-test
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+FAILURE DETECTED
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+SUMMARY:
+Pod test-imagepull cannot start because it fails to pull the image 
+'this-does-not-exist:v1.0'.
+
+MEANING:
+Kubernetes cannot retrieve the container image from the registry. The pod 
+cannot start until the image is successfully pulled.
+
+LIKELY CAUSE:
+Private registry credentials (imagePullSecrets) are missing or incorrect
+
+EVIDENCE:
+  • Container 'test-imagepull' status: ImagePullBackOff
+  • Image: this-does-not-exist:v1.0
+  • Event: Failed to pull image... pull access denied, repository does not exist
+
+IMPACT:
+The pod cannot start. No containers are running.
+
+NEXT CHECKS:
+  1. Verify the image name and tag are correct
+  2. Check if the image exists in the registry
+  3. For private registries: verify imagePullSecrets are configured
+  4. Check network connectivity to the registry
+  5. Check for registry rate limits
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+### 3. OOMKilled - Out of Memory
+
+```bash
+$ hiios explain pod test-oom -n hiios-test
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+FAILURE DETECTED
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+SUMMARY:
+Container in pod test-oom was killed because it ran out of memory (OOMKilled).
+
+MEANING:
+The container exceeded its memory limit and was terminated by Kubernetes. This 
+is a resource constraint issue, not an application crash.
+
+LIKELY CAUSE:
+Possible memory leak (frequent restarts)
+
+EVIDENCE:
+  • Container 'stress' was terminated with reason: OOMKilled
+  • Exit Code: 137
+  • Restart Count: 7
+
+IMPACT:
+The container crashes when it exceeds memory limits. If in a deployment, this 
+causes degraded availability.
+
+NEXT CHECKS:
+  1. Compare memory limit vs memory request
+  2. Monitor actual memory usage over time
+  3. Investigate application code for memory leaks
+  4. Consider increasing memory limit if workload legitimately needs more
+  5. Review if traffic spikes correlate with OOMKills
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+### 4. ServiceNoEndpoints - No Backend Pods
+
+```bash
+$ hiios explain svc test-svc -n hiios-test
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+FAILURE DETECTED
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+SUMMARY:
+Service test-svc has no healthy endpoints to route traffic to.
+
+MEANING:
+A Service exists but has no healthy backend pods to route traffic to. All 
+requests to this Service will fail.
+
+LIKELY CAUSE:
+Service selector doesn't match any pod labels
+
+EVIDENCE:
+  • Service Name: test-svc
+  • Namespace: hiios-test
+  • Selector: app=test-svc
+  • Endpoints: 0 found
+
+IMPACT:
+All traffic to this Service will fail (connection refused or timeout).
+
+NEXT CHECKS:
+  1. Verify service selector matches pod labels exactly
+  2. Check if pods exist with the expected labels
+  3. Investigate why matching pods are not ready
+  4. Review readiness probe configuration
+  5. Ensure pods and service are in the same namespace
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+---
+
+**Notice how Hiios:**
+
+- ✅ Identifies the exact problem from logs and events
+- ✅ Explains what's actually happening (not just status codes)
+- ✅ Provides evidence to back up the diagnosis
+- ✅ Suggests concrete next steps
+- ✅ Uses calm, educational language
 
 Compare this to `kubectl get pod` which just shows "CrashLoopBackOff" 🤷
 
