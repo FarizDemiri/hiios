@@ -365,4 +365,4 @@ MIT License - see [LICENSE](LICENSE) for details.
 
 ## Author
 
-Created by [Your Name] as a contribution to the SRE and DevOps community.
+Created by Fariz Demiroski as a contribution to the SRE and DevOps community.
